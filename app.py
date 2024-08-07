@@ -6,7 +6,7 @@ import datetime as dt
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, desc
 
 
 #################################################
@@ -48,9 +48,10 @@ def Welcome():
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/start<br/>"
-        f"/api/v1.0/start/end"
+        f"/api/v1.0/start/2016-8-23<br/>"
+        f"/api/v1.0/start/2016-8-23/end/2017-8-23"
     )
+    
 
 # Precipitation Route
 @app.route('/api/v1.0/precipitation')
@@ -59,7 +60,8 @@ def precipitation():
     prior_year = dt.date(2017, 8, 23) - dt.timedelta(days=365)
     # Query the database
     precipitation = session.query(Measurement.date, Measurement.prcp).\
-        filter(Measurement.date >= prior_year).all()
+        filter(Measurement.date >= prior_year).\
+        order_by(Measurement.date).all()
     # Create a dictionary from the results
     precip = {date: prcp for date, prcp in precipitation}
     # Return JSON response
@@ -99,6 +101,7 @@ def stations():
 # Tobs Route
 @app.route('/api/v1.0/tobs')
 def tobs():
+
     # Start Session
     session = Session(engine)
     # Query the temperature data
@@ -116,51 +119,60 @@ def tobs():
     return jsonify(temperatures)
 
 # Start Route
-@app.route('/api/v1.0/<start>')
-def temp_start(start):
-    # Start Session
-    session = Session(engine)
-    # Query the min, average, and max temperature for start date on
-    start_results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
-        filter(Measurement.date >= start).all()
-    # Close session
-    session.close()
+@app.route('/api/v1.0/start/<start>')
+def start(start):
+
+    # Parse the start date
+    start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
+
+     # Query the min, average, and max temperature for start date on
+    start = dt.date(2017, 8, 23) - dt.timedelta(days=365)
+    stats = [func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)]
+        
+    stats_result = session.query(*stats).\
+        filter(Measurement.date >= start_date).all()
+
+     # Format the result as a dictionary
+    temp_stats = {
+    "Start Date": start,
+    "Low Temperature": stats_result[0][0],
+    "High Temperature": stats_result[0][1],
+    "Average Temperature": stats_result[0][2]
+    }
+    
+    # Return JSON response
+    return jsonify(temp_stats)
+
+@app.route('/api/v1.0/start/<start>/end/<end>')
+def date_range(start, end):
+    start = dt.date(2017, 8, 23) - dt.timedelta(days=365)
+    end_eq = session.query(Measurement.date).order_by(desc(Measurement.date)).first()
+    end_str = end_eq[0]
+    end = dt.datetime.strptime(end_str, '%Y-%m-%d').date()
+    temp_stats = [func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)]
+    start_end_results = session.query(*temp_stats).\
+        filter(Measurement.date >= start).\
+        filter(Measurement.date <= end).all()
+
+
 
     # Create a list
-    temperatures = []
-    for min_temp, avg_temp, max_temp in start_results:
-        temperature_dict = {}
-        temperature_dict['Minimum Temperature'] = min_temp
-        temperature_dict['Average Temperature'] = avg_temp
-        temperature_dict['Maximum Temperature'] = max_temp
-        temperatures.append(temperature_dict)
+    temperatures  = {
+    "Start Date": start,
+    "End Date": end,
+    "Low Temperature": start_end_results[0][0],
+    "High Temperature": start_end_results[0][1],
+    "Average Temperature": start_end_results[0][2]
+    }
+    
+
 
     # Return JSON response
     return jsonify(temperatures)
 
-# Specific Start and end Route
-@app.route('/api/v1.0/<start>/<end>')
-def temp_start_end(start, end):
-    # Start session
-    session = Session(engine)
-    # Query the min, average, and max temperature from start to end date
-    start_end_results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
-                filter(Measurement.date >= start).\
-                filter(Measurement.date <= end).all()
-    # Close session
-    session.close()
+# Close session
+session.close()
 
-    # Create a list
-    temperatures = []
-    for min_temp, avg_temp, max_temp in start_end_results:
-        temperature_dict = {}
-        temperature_dict['Minimum Temperature'] = min_temp
-        temperature_dict['Average Temperature'] = avg_temp
-        temperature_dict['Maximum Temperature'] = max_temp
-        temperatures.append(temperature_dict)
-
-    # Return JSON response
-    return jsonify(temperatures)
 
 # Define main behavior
 if __name__ == "__main__":
